@@ -46,7 +46,20 @@ class HTTPError(Exception):
             header(k, v)
         self.data = data
         Exception.__init__(self, status)
-        
+
+def HTTPErrorSwitch(dft_class):
+    """Returns a function that returns an app-specific handler for the given
+    exception, or an instance of `dft_class` by default
+    """
+    handler_name = dft_class.__name__.lower()
+    def switch(*args, **kwargs):
+        for app in ctx.get('app_stack', [])[::-1]:
+            app_handler = app.get(handler_name)
+            if callable(app_handler):
+                return app_handler(*args, **kwargs)
+        return dft_class()
+    return switch
+
 def _status_code(status, data=None, classname=None, docstring=None):
     if data is None:
         data = status.split(" ", 1)[1]
@@ -119,41 +132,27 @@ class TempRedirect(Redirect):
 
 tempredirect = TempRedirect
 
-class BadRequest(HTTPError):
-    """`400 Bad Request` error."""
-    message = "bad request"
-    def __init__(self):
-        status = "400 Bad Request"
-        headers = {'Content-Type': 'text/html'}
-        HTTPError.__init__(self, status, headers, self.message)
+BadRequest = _status_code("400 Bad Request")
+badrequest = HTTPErrorSwitch(BadRequest)
 
-badrequest = BadRequest
+NotFound = _status_code("404 Not Found")
+notfound = HTTPErrorSwitch(NotFound)
 
-class _NotFound(HTTPError):
-    """`404 Not Found` error."""
-    message = "not found"
-    def __init__(self, message=None):
-        status = '404 Not Found'
-        headers = {'Content-Type': 'text/html'}
-        HTTPError.__init__(self, status, headers, message or self.message)
+Unauthorized = _status_code("401 Unauthorized")
+unauthorized = HTTPErrorSwitch(Unauthorized)
 
-def NotFound(message=None):
-    """Returns HTTPError with '404 Not Found' error from the active application.
-    """
-    if message:
-        return _NotFound(message)
-    elif ctx.get('app_stack'):
-        return ctx.app_stack[-1].notfound()
-    else:
-        return _NotFound()
+Forbidden = _status_code("403 Forbidden")
+forbidden = HTTPErrorSwitch(Forbidden)
 
-notfound = NotFound
+NotAcceptable = _status_code("406 Not Acceptable")
+notacceptable = HTTPErrorSwitch(NotAcceptable)
 
-unauthorized = Unauthorized = _status_code("401 Unauthorized")
-forbidden = Forbidden = _status_code("403 Forbidden")
-notacceptable = NotAcceptable = _status_code("406 Not Acceptable")
-conflict = Conflict = _status_code("409 Conflict")
-preconditionfailed = PreconditionFailed = _status_code("412 Precondition Failed")
+Conflict = _status_code("409 Conflict")
+conflict = HTTPErrorSwitch(Conflict)
+
+PreconditionFailed = _status_code("412 Precondition Failed")
+preconditionfailed = HTTPErrorSwitch(PreconditionFailed)
+
 
 class NoMethod(HTTPError):
     """A `405 Method Not Allowed` error."""
@@ -170,7 +169,7 @@ class NoMethod(HTTPError):
         data = None
         HTTPError.__init__(self, status, headers, data)
         
-nomethod = NoMethod
+nomethod = HTTPErrorSwitch(NoMethod)
 
 class Gone(HTTPError):
     """`410 Gone` error."""
@@ -180,7 +179,7 @@ class Gone(HTTPError):
         headers = {'Content-Type': 'text/html'}
         HTTPError.__init__(self, status, headers, self.message)
 
-gone = Gone
+gone = HTTPErrorSwitch(Gone)
 
 class _InternalError(HTTPError):
     """500 Internal Server Error`."""
@@ -201,7 +200,7 @@ def InternalError(message=None):
     else:
         return _InternalError()
 
-internalerror = InternalError
+internalerror = HTTPErrorSwitch(InternalError)
 
 def header(hdr, value, unique=False):
     """
